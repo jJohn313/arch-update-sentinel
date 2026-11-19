@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly Moonveil Arch Linux Update Sentinel Timer
+Requires=arch-sentinel.service
+
+[Timer]
+OnBootSec=3min
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

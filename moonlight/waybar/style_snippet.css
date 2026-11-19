@@ -1,0 +1,31 @@
+/* Moonveil Sentinel Waybar Update Pill Styles */
+#custom-updates {
+    padding: 0 8px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+#custom-updates:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+#custom-updates.synced {
+    color: #a6da95; /* Subtle green when nominal */
+}
+
+#custom-updates.updates {
+    color: #89b4fa; /* Clean blue when low-risk updates are pre-cached */
+    font-weight: 700;
+}
+
+#custom-updates.review-needed {
+    color: #f6c177; /* Amber/Yellow when kernel/driver/Hyprland needs review */
+    font-weight: 700;
+}
+
+#custom-updates.manual-alert {
+    background-color: #eb6f92; /* Rosé / Red alert */
+    color: #191724;
+    font-weight: 800;
+    padding: 0 10px;
+}

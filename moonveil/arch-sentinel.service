@@ -1,0 +1,12 @@
+[Unit]
+Description=Moonveil Arch Linux Update Sentinel & Breaking Change Analyzer
+After=network-online.target pacoloco.service darkhttpd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/john/scripts/sentinels/arch_sentinel.py
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

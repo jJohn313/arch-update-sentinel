@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync Moonlight Package Database to Moonveil Sentinel
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/john/.local/bin/sentinel-sync-packages.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
