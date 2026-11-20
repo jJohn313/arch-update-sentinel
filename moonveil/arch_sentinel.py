@@ -10,6 +10,7 @@ Moonveil Update Sentinel & Breaking Change Analyzer
 """
 
 import datetime
+import email.utils
 import html
 import json
 import os
@@ -20,6 +21,8 @@ import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+
+MAX_NEWS_AGE_DAYS = 45
 
 STATE_DIR = os.path.expanduser("~/.local/state/sentinels")
 DB_PATH = os.path.join(STATE_DIR, "moonlight_db")
@@ -195,24 +198,36 @@ def clean_html(raw_html):
     return " ".join(html.unescape(cleantext).split())
 
 def fetch_arch_news():
-    """Fetches recent Arch Linux News items."""
+    """Fetches recent Arch Linux News items within MAX_NEWS_AGE_DAYS."""
+    now = time.time()
     try:
         req = urllib.request.Request(NEWS_RSS_URL, headers={"User-Agent": "Moonveil-Sentinel/1.0"})
         with urllib.request.urlopen(req, timeout=10) as r:
             root = ET.fromstring(r.read())
             items = []
-            for it in root.findall('./channel/item')[:15]:
-                title = it.find('title').text or ""
-                link = it.find('link').text or ""
-                pub = it.find('pubDate').text or ""
-                desc = it.find('description').text or ""
-                items.append({
-                    "title": title.strip(),
-                    "link": link.strip(),
-                    "pubDate": pub.strip()[:16],
-                    "raw_desc": desc,
-                    "text_desc": clean_html(desc)
-                })
+            for it in root.findall('./channel/item')[:20]:
+                title = (it.find('title').text or "").strip()
+                link = (it.find('link').text or "").strip()
+                pub = (it.find('pubDate').text or "").strip()
+                desc = (it.find('description').text or "").strip()
+                
+                days_ago = 999.0
+                try:
+                    dt = email.utils.parsedate_to_datetime(pub).timestamp()
+                    days_ago = (now - dt) / 86400.0
+                except Exception:
+                    pass
+
+                # Only include news within the age limit
+                if days_ago <= MAX_NEWS_AGE_DAYS:
+                    items.append({
+                        "title": title,
+                        "link": link,
+                        "pubDate": pub[:16],
+                        "days_ago": round(days_ago, 1),
+                        "raw_desc": desc,
+                        "text_desc": clean_html(desc)
+                    })
             return items
     except Exception as e:
         print(f"[!] Arch news fetch error: {e}")
@@ -221,7 +236,7 @@ def fetch_arch_news():
 def analyze_risk(official_updates, aur_updates, news_items):
     """
     Evaluates:
-    1. Critical Manual Intervention from Arch News
+    1. Critical Manual Intervention from recent Arch News (<45 days)
     2. High Risk: Hyprland, Wayland stack, Linux Kernel & Nvidia DKMS pairs
     3. Medium Risk: Core runtime ABI updates (Python, OpenSSL, ICU) affecting AUR
     """
@@ -231,34 +246,68 @@ def analyze_risk(official_updates, aur_updates, news_items):
     advisories = []
     analyzed_pkgs = []
 
-    all_update_names = {u["name"] for u in official_updates}.union({u["name"] for u in aur_updates})
+    # Map package names to their current installed version
+    installed_versions = {u["name"]: u["old_version"] for u in official_updates}
+    installed_versions.update({u["name"]: u["old_version"] for u in aur_updates})
 
-    # 1. Match against Arch News
+    all_update_names = set(installed_versions.keys())
+
+    # 1. Match against recent Arch News
     for news in news_items:
-        title_lower = news["title"].lower()
-        desc_lower = news["text_desc"].lower()
-        is_manual = "manual intervention" in title_lower or "manual intervention" in desc_lower or "requires manual" in title_lower
+        title_raw = news["title"]
+        desc_raw = news["text_desc"]
+
+        # Strip distro name 'Arch Linux' to prevent false positive matches on 'linux' package
+        title_clean = re.sub(r'\barch\s+linux\b', '', title_raw, flags=re.IGNORECASE).lower()
+        desc_clean = re.sub(r'\barch\s+linux\b', '', desc_raw, flags=re.IGNORECASE).lower()
+
+        is_manual = "manual intervention" in title_clean or "manual intervention" in desc_clean or "requires manual" in title_clean
         
-        # Check if any updating package is named in the news
         matched_pkgs = []
         for pkg in all_update_names:
+            # Skip generic short package names
+            if len(pkg) <= 2:
+                continue
+
             pattern = r'\b' + re.escape(pkg.lower()) + r'\b'
-            if re.search(pattern, title_lower) or (is_manual and re.search(pattern, desc_lower)):
+            
+            # Check title first (high confidence)
+            if re.search(pattern, title_clean):
+                matched_pkgs.append(pkg)
+            elif is_manual and re.search(pattern, desc_clean):
+                # Only match description if it's explicitly in manual intervention context
                 matched_pkgs.append(pkg)
 
-        if matched_pkgs:
-            if is_manual:
-                risk_level = "red"
-                needs_manual = True
-                manual_alerts.append({
-                    "packages": matched_pkgs,
-                    "title": news["title"],
-                    "link": news["link"],
-                    "date": news["pubDate"],
-                    "instructions": news["text_desc"][:500]
-                })
-            else:
-                advisories.append(f"Arch News Alert: '{news['title']}' ({news['link']})")
+        # Check for obsolete version notices (e.g. nvidia 590 when user is already on 620)
+        valid_manual_pkgs = []
+        for pkg in matched_pkgs:
+            installed_ver = installed_versions.get(pkg, "")
+            # If news specifies a version like "nvidia 590" or ">= 42"
+            ver_match = re.search(r'\b(?:driver\s+version|version|>=?)\s*(\d+)', title_raw, flags=re.IGNORECASE)
+            if ver_match and installed_ver:
+                try:
+                    target_ver = int(ver_match.group(1))
+                    inst_major = int(re.split(r'[:.-]', installed_ver)[0])
+                    if inst_major > target_ver:
+                        # User has already passed this transition!
+                        continue
+                except Exception:
+                    pass
+            valid_manual_pkgs.append(pkg)
+
+        if valid_manual_pkgs and is_manual:
+            risk_level = "red"
+            needs_manual = True
+            manual_alerts.append({
+                "packages": valid_manual_pkgs,
+                "title": news["title"],
+                "link": news["link"],
+                "date": news["pubDate"],
+                "instructions": news["text_desc"][:400]
+            })
+        elif valid_manual_pkgs and not is_manual:
+            # Relevant recent non-manual news
+            advisories.append(f"Arch News: '{news['title']}' ({news['pubDate']})")
 
     # 2. Kernel & Nvidia Driver Analysis
     kernel_updates = [u for u in official_updates if re.match(r'^linux(-lts|-zen|-hardened)?$', u["name"])]

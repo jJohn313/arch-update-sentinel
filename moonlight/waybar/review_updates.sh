@@ -2,15 +2,14 @@
 # Moonveil Sentinel Co-Pilot: Arch Linux Package Update & Changelog Review
 set -eo pipefail
 
-CLEAR_CMD="clear"
 command -v clear >/dev/null 2>&1 && clear
 
 MOONVEIL_URL="http://192.168.178.67:8083/data/update-risk.json"
 CACHE_FILE="/tmp/waybar_sentinel_cache.json"
 
-echo -e "\033[1;36m╭────────────────────────────────────────────────────────────╮\033[0m"
-echo -e "\033[1;36m│       Moonveil Co-Pilot: Update Sentinel & Pre-Flight      │\033[0m"
-echo -e "\033[1;36m╰────────────────────────────────────────────────────────────╯\033[0m"
+echo -e "\033[1;36m╭────────────────────────────────────────────────────────────────────────────╮\033[0m"
+echo -e "\033[1;36m│          Moonveil Co-Pilot • Arch Linux Update & Risk Analyzer             │\033[0m"
+echo -e "\033[1;36m╰────────────────────────────────────────────────────────────────────────────╯\033[0m"
 echo ""
 
 # Fetch fresh data from Moonveil Sentinel if reachable
@@ -20,7 +19,7 @@ fi
 
 # Run pre-flight analyzer python helper
 python3 - << 'EOF'
-import json, os, sys
+import json, os, sys, textwrap
 
 cache_file = "/tmp/waybar_sentinel_cache.json"
 data = None
@@ -42,6 +41,7 @@ needs_manual = data.get("needs_manual", False)
 manual_alerts = data.get("manual_alerts", [])
 advisories = data.get("advisories", [])
 packages = data.get("packages", [])
+aur_updates = data.get("aur_updates", [])
 prefetched = data.get("prefetched_count", 0)
 total_official = data.get("official_count", count)
 
@@ -49,53 +49,75 @@ if count == 0:
     print("\033[1;32m󰄬 Your system is completely up to date! Zero packages pending.\033[0m\n")
     sys.exit(0)
 
-# 1. CRITICAL MANUAL INTERVENTION BANNER
+# 1. CRITICAL MANUAL INTERVENTION CARD
 if needs_manual and manual_alerts:
-    print("\033[1;31m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\033[0m")
-    print("\033[1;31m┃ ⚠️  CRITICAL: ARCH NEWS MANUAL INTERVENTION REQUIRED       ┃\033[0m")
-    print("\033[1;31m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\033[0m")
+    print("\033[1;31m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\033[0m")
+    print("\033[1;31m┃  ⚠️  CRITICAL: ARCH NEWS MANUAL INTERVENTION REQUIRED                       ┃\033[0m")
+    print("\033[1;31m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\033[0m")
     for alert in manual_alerts:
         pkgs = ", ".join(alert.get("packages", []))
-        print(f"\033[1;37mPackage(s):\033[0m \033[1;31m{pkgs}\033[0m")
-        print(f"\033[1;37mTitle:     \033[0m \033[1;33m{alert.get('title')}\033[0m")
-        print(f"\033[1;37mPublished: \033[0m {alert.get('date')}")
-        print(f"\033[1;37mSource:    \033[0m \033[0;34m{alert.get('link')}\033[0m")
-        print("\033[1;37mWhy & How (Manual Action Required Before/During Upgrade):\033[0m")
-        print(f"\033[0;31m{alert.get('instructions')}\033[0m\n")
+        print(f"\033[1;37m• Package(s): \033[1;31m{pkgs}\033[0m")
+        print(f"\033[1;37m• Title:      \033[1;33m{alert.get('title')}\033[0m  \033[0;34m({alert.get('date')})\033[0m")
+        print(f"\033[1;37m• URL:        \033[0;34m{alert.get('link')}\033[0m")
+        print("\033[1;37m• Required Action:\033[0m")
+        lines = textwrap.wrap(alert.get("instructions", ""), width=74)
+        for line in lines:
+            print(f"  \033[0;31m{line}\033[0m")
+        print("")
 
-# 2. ADVISORIES & BREAKING CHANGE WARNINGS
+# 2. SYSTEM & DRIVER ADVISORIES
 if advisories:
-    print("\033[1;33m╭─ 󰅚  System & Driver Advisories ───────────────────────────╮\033[0m")
+    print("\033[1;33m╭─ System & Driver Advisories ───────────────────────────────────────────────╮\033[0m")
     for adv in advisories:
-        print(f"\033[1;33m│\033[0m • \033[0;37m{adv}\033[0m")
-    print("\033[1;33m╰───────────────────────────────────────────────────────────╯\033[0m\n")
+        print(f"\033[1;33m│\033[0m  • \033[0;37m{adv}\033[0m")
+    print("\033[1;33m╰────────────────────────────────────────────────────────────────────────────╯\033[0m\n")
 
 # 3. LAN PRE-CACHE STATUS
 if prefetched > 0:
-    print(f"\033[1;32m✔ Moonveil Pacoloco Cache: {prefetched}/{total_official} packages pre-warmed on LAN (110 MB/s line-rate)\033[0m\n")
+    print(f"\033[1;32m✔ Moonveil Pacoloco: {prefetched}/{total_official} packages pre-warmed on LAN (110 MB/s line-rate)\033[0m\n")
 
-# 4. PACKAGE MATRIX
-print(f"\033[1;34mFound \033[1;37m{count}\033[1;34m packages queued for upgrade:\033[0m")
-print("\033[0;37m────────────────────────────────────────────────────────────\033[0m")
-fmt = "{:<24} {:<16} {:<16} {:<12}"
-print(f"\033[1;37m{fmt.format('PACKAGE', 'INSTALLED', 'TARGET', 'LAN CACHED')}\033[0m")
-print("\033[0;37m────────────────────────────────────────────────────────────\033[0m")
+# 4. CLEAN PACKAGE MATRIX
+print(f"\033[1;34mPending Upgrades (\033[1;37m{count}\033[1;34m):\033[0m")
+print("\033[0;37m────────────────────────────────────────────────────────────────────────────\033[0m")
+fmt = "{:<25} {:<15} {:<15} {:<10} {:<10}"
+print(f"\033[1;37m{fmt.format('PACKAGE', 'INSTALLED', 'TARGET', 'LAN CACHE', 'NOTE')}\033[0m")
+print("\033[0;37m────────────────────────────────────────────────────────────────────────────\033[0m")
+
+# Display official packages
 for p in packages:
     name = p.get("name", "")
     old_v = p.get("old_version", "")
     new_v = p.get("new_version", "")
     cached = "✔ Ready" if p.get("precached") else "-"
-    warn = p.get("warning", "")
-    color = "\033[1;31m" if p.get("risk") == "red" else ("\033[1;33m" if p.get("risk") == "yellow" else "\033[0;37m")
-    print(f"{color}{fmt.format(name, old_v, new_v, cached)}\033[0m")
-    if warn:
-        print(f"  \033[0;33m↳ {warn}\033[0m")
+    cat = p.get("category", "")
+    
+    # Tag formatting
+    note = ""
+    if cat == "kernel":
+        note = "[Kernel]"
+    elif cat == "driver":
+        note = "[Driver]"
+    elif cat == "display":
+        note = "[Display]"
+    elif cat == "system":
+        note = "[System]"
+    elif p.get("risk") == "red":
+        note = "[MANUAL]"
 
-print("\033[0;37m────────────────────────────────────────────────────────────\033[0m")
-print("\033[1;32m󰄬 Backup Guarantee: Btrfs pre- and post-upgrade snapshots will be automatically taken by snap-pac.\033[0m\n")
+    color = "\033[1;31m" if p.get("risk") == "red" else ("\033[1;33m" if p.get("risk") == "yellow" else "\033[0;37m")
+    print(f"{color}{fmt.format(name, old_v, new_v, cached, note)}\033[0m")
+
+# Display AUR packages
+for a in aur_updates:
+    name = a.get("name", "")
+    old_v = a.get("old_version", "")
+    new_v = a.get("new_version", "")
+    print(f"\033[0;36m{fmt.format(name, old_v, new_v, '-', '[AUR]')}\033[0m")
+
+print("\033[0;37m────────────────────────────────────────────────────────────────────────────\033[0m")
+print("\033[1;32m󰄬 Backup Guarantee: Automatic pre/post Btrfs snapshots via snap-pac\033[0m\n")
 EOF
 
-# If Sentinel cache was missing or exited with code 0 (up to date)
 STATUS=$?
 if [ $STATUS -eq 0 ] && [ ! -f "$CACHE_FILE" ]; then
     read -rp "Press [Enter] to close..."
