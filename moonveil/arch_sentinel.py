@@ -73,25 +73,48 @@ def sync_repos():
         print(f"[!] Repo sync failed: {e}")
         return False
 
-def get_official_updates():
-    """Returns list of dicts: {name, old_version, new_version}"""
+def get_ignored_packages():
+    """Reads IgnorePkg from pacman.conf on Moonlight/Moonveil."""
+    ignored = set()
+    confs = [
+        os.path.join(STATE_DIR, "moonlight-ignorepkg.txt"),
+        "/etc/pacman.conf",
+        PACMAN_CONF
+    ]
+    for c in confs:
+        if os.path.exists(c):
+            try:
+                with open(c, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("IgnorePkg") and "=" in line:
+                            parts = line.split("=", 1)[1].split()
+                            ignored.update(parts)
+            except Exception:
+                pass
+    return ignored
+
+def get_official_updates(ignored_pkgs):
+    """Returns list of dicts: {name, old_version, new_version} filtering out ignored packages."""
     cmd = ["pacman", "-Qu", "--dbpath", DB_PATH]
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
         lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         updates = []
         for line in lines:
-            # format: pkgname old -> new
             parts = line.split()
+            pkg_name = parts[0]
+            if pkg_name in ignored_pkgs:
+                continue
             if len(parts) >= 4 and parts[2] == "->":
                 updates.append({
-                    "name": parts[0],
+                    "name": pkg_name,
                     "old_version": parts[1],
                     "new_version": parts[3]
                 })
             elif len(parts) >= 2:
                 updates.append({
-                    "name": parts[0],
+                    "name": pkg_name,
                     "old_version": "unknown",
                     "new_version": parts[1]
                 })
@@ -100,8 +123,18 @@ def get_official_updates():
         print(f"[!] Failed to check pacman updates: {e}")
         return []
 
-def get_aur_updates():
-    """Checks foreign packages against AUR RPC."""
+def is_newer_version(remote, local):
+    """Uses pacman's vercmp to ensure remote is strictly newer than local."""
+    if not remote or not local or local == "unknown":
+        return False
+    try:
+        res = subprocess.run(["vercmp", remote, local], capture_output=True, text=True, check=False)
+        return int(res.stdout.strip()) > 0
+    except Exception:
+        return False
+
+def get_aur_updates(ignored_pkgs):
+    """Checks foreign packages against AUR RPC using vercmp to avoid VCS downgrades."""
     if not os.path.exists(FOREIGN_PKGS_FILE):
         return []
     installed_aur = {}
@@ -119,8 +152,7 @@ def get_aur_updates():
     if not installed_aur:
         return []
 
-    # Query AUR in batches of 50
-    pkgs = list(installed_aur.keys())
+    pkgs = [p for p in installed_aur.keys() if p not in ignored_pkgs]
     aur_updates = []
     batch_size = 50
     for i in range(0, len(pkgs), batch_size):
@@ -135,7 +167,8 @@ def get_aur_updates():
                     pkgname = result.get("Name")
                     remote_ver = result.get("Version")
                     local_ver = installed_aur.get(pkgname)
-                    if remote_ver and local_ver and local_ver != "unknown" and remote_ver != local_ver:
+                    # Only flag as update if remote is strictly NEWER according to vercmp
+                    if is_newer_version(remote_ver, local_ver):
                         aur_updates.append({
                             "name": pkgname,
                             "old_version": local_ver,
@@ -418,8 +451,9 @@ def main():
         print("[-] Skipping cycle due to sync failure.")
         return
 
-    official_updates = get_official_updates()
-    aur_updates = get_aur_updates()
+    ignored_pkgs = get_ignored_packages()
+    official_updates = get_official_updates(ignored_pkgs)
+    aur_updates = get_aur_updates(ignored_pkgs)
     news_items = fetch_arch_news()
 
     total_count = len(official_updates) + len(aur_updates)

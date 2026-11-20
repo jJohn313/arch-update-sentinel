@@ -12,11 +12,13 @@ ssh -o BatchMode=yes -o ConnectTimeout=3 "$MOONVEIL_HOST" "mkdir -p ~/.local/sta
 # Sync local pacman database (metadata only, world-readable)
 rsync -a --delete --timeout=10 /var/lib/pacman/local/ "${MOONVEIL_HOST}:${REMOTE_STATE}/moonlight_db/local/" 2>/dev/null || true
 
-# Export foreign (AUR) packages
+# Export foreign (AUR) packages & IgnorePkg
 pacman -Qm > "$TEMP_FOREIGN" 2>/dev/null || true
+grep -E '^\s*IgnorePkg\s*=' /etc/pacman.conf > /tmp/moonlight-ignorepkg.txt 2>/dev/null || true
+
 if [ -f "$TEMP_FOREIGN" ]; then
-    scp -q -o BatchMode=yes -o ConnectTimeout=3 "$TEMP_FOREIGN" "${MOONVEIL_HOST}:${REMOTE_STATE}/foreign-packages.txt" 2>/dev/null || true
-    rm -f "$TEMP_FOREIGN"
+    scp -q -o BatchMode=yes -o ConnectTimeout=3 "$TEMP_FOREIGN" /tmp/moonlight-ignorepkg.txt "${MOONVEIL_HOST}:${REMOTE_STATE}/" 2>/dev/null || true
+    rm -f "$TEMP_FOREIGN" /tmp/moonlight-ignorepkg.txt
 fi
 
 # Asynchronously trigger Moonveil Sentinel update run
